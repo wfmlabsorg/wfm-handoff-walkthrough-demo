@@ -1,0 +1,399 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Forecaster Hand-off</title>
+<meta name="description" content="A walk-through of what an agent team does in the background when one forecaster hands a migration plan to another: extract every assumption, test it against past migrations, and turn the gaps into the right questions.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232C3E50'/%3E%3Cpath d='M8 20h7l-3 4M24 12h-7l3-4' stroke='%23F39C12' stroke-width='2.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#ECF0F1; --surface:#ffffff; --ink:#2C3E50; --muted:#5d6d7e; --faint:#8a97a6; --line:#d5dde3;
+  --accent:#2a7fc0; --accent-soft:#e3eef8;
+  --s1:#2a7fc0; --s2:#c87b0a; --ref:#8a97a6;
+  --ok:#1e8449; --ok-soft:#dff3e7; --warn:#a35f00; --warn-soft:#fbefd9; --bad:#c0392b; --bad-soft:#fbe3e0; --unk:#5d6d7e; --unk-soft:#e8edf1;
+  --gate:#7d3c98; --gate-soft:#f1e6f6; --gold:#F39C12;
+  --h0:#eef4fa; --h1:#cfe0f1; --h2:#9fc3e6; --h3:#69a2d6; --h4:#2a7fc0; --h5:#174f80;
+  --sans:"Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono:"JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#141c26; --surface:#1f2a37; --ink:#e6ecf2; --muted:#a3b1bf; --faint:#75849a; --line:#2f3d4d; --accent:#6aaee6; --accent-soft:#1d3247;
+  --s1:#4a94d0; --s2:#b97a2c; --ref:#75849a;
+  --ok:#58c48a; --ok-soft:#173527; --warn:#e3a54d; --warn-soft:#3a2c16; --bad:#ec7a6c; --bad-soft:#3d1f1c; --unk:#a3b1bf; --unk-soft:#283545;
+  --gate:#c08fd8; --gate-soft:#30223a;
+  --h0:#1c2836; --h1:#1e3550; --h2:#24507a; --h3:#2f6aa3; --h4:#4a8fd0; --h5:#9cc6ee; color-scheme:dark } }
+:root[data-theme="dark"]{
+  --bg:#141c26; --surface:#1f2a37; --ink:#e6ecf2; --muted:#a3b1bf; --faint:#75849a; --line:#2f3d4d; --accent:#6aaee6; --accent-soft:#1d3247;
+  --s1:#4a94d0; --s2:#b97a2c; --ref:#75849a;
+  --ok:#58c48a; --ok-soft:#173527; --warn:#e3a54d; --warn-soft:#3a2c16; --bad:#ec7a6c; --bad-soft:#3d1f1c; --unk:#a3b1bf; --unk-soft:#283545;
+  --gate:#c08fd8; --gate-soft:#30223a;
+  --h0:#1c2836; --h1:#1e3550; --h2:#24507a; --h3:#2f6aa3; --h4:#4a8fd0; --h5:#9cc6ee; color-scheme:dark }
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 var(--sans)}
+.wrap{max-width:1260px;margin:0 auto;padding:22px 16px 64px}
+a{color:var(--accent)}
+h1,h2,h3{font-weight:700;line-height:1.2;margin:0;text-wrap:balance;letter-spacing:-.01em}
+h1{font-size:clamp(1.6rem,3.6vw,2.35rem);margin:.2em 0 .35em}
+h2{font-size:1.25rem}
+h3{font-size:.98rem;margin-bottom:.45em}
+.brand{display:flex;align-items:center;gap:10px;font-weight:600;font-size:.92rem}
+.brand a{text-decoration:none;color:var(--ink)}
+.brand .dot{width:22px;height:22px;border-radius:6px;background:#2C3E50;display:inline-grid;place-items:center;color:var(--gold);font-weight:700;font-size:.8rem}
+.eyebrow{font:500 .72rem/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:18px 0 0}
+.lede{color:var(--muted);max-width:80ch;margin:0}
+.synth{display:inline-block;font:500 .72rem var(--mono);padding:2px 8px;border-radius:999px;background:var(--warn-soft);color:var(--warn);margin-left:6px;vertical-align:middle}
+.intro{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:16px}
+@media (max-width:860px){.intro{grid-template-columns:1fr}}
+.ibox{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-size:.88rem}
+.ibox b{display:block;margin-bottom:2px}
+.layout{display:grid;grid-template-columns:240px minmax(0,1fr) 300px;gap:16px;margin-top:18px;align-items:start}
+@media (max-width:1100px){.layout{grid-template-columns:1fr}}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px}
+.steps{display:flex;flex-direction:column;gap:5px}
+@media (max-width:1100px){.steps{flex-direction:row;overflow-x:auto;padding-bottom:4px}.step{min-width:160px}}
+.step{all:unset;cursor:pointer;display:grid;grid-template-columns:26px 1fr;gap:8px;align-items:start;padding:8px 10px;border-radius:8px;border:1px solid transparent;font-size:.86rem;line-height:1.3}
+.step:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.step .n{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font:600 .78rem var(--mono);background:var(--unk-soft);color:var(--muted)}
+.step small{display:block;color:var(--faint);font-size:.74rem;margin-top:2px}
+.step[aria-current="step"]{border-color:var(--accent);background:var(--accent-soft)}
+.step.done .n{background:var(--ok);color:#fff}
+.step[disabled]{cursor:not-allowed;opacity:.45}
+.step .lock{color:var(--gate);font-weight:600}
+.reset{all:unset;cursor:pointer;margin-top:10px;font-size:.8rem;color:var(--muted);text-decoration:underline}
+.stagehead{display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px;align-items:flex-start}
+.why{color:var(--muted);font-size:.9rem;margin:6px 0 0;max-width:72ch}
+.agent{font:500 .74rem var(--mono);padding:3px 9px;border-radius:999px;background:var(--accent-soft);color:var(--accent);white-space:nowrap}
+.btn{all:unset;cursor:pointer;font-weight:600;font-size:.9rem;padding:9px 16px;border-radius:8px;background:var(--accent);color:#fff}
+.btn:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+.btn[disabled]{opacity:.5;cursor:default}
+.btn.gate{background:var(--gate)}
+.log{font:12.5px/1.6 var(--mono);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin:14px 0;min-height:44px;max-height:200px;overflow:auto}
+.log div{white-space:pre-wrap}
+.log .ag{color:var(--accent);font-weight:500}
+.log .ok{color:var(--ok)} .log .warn{color:var(--warn)} .log .bad{color:var(--bad)}
+.gatebox{margin-top:16px;border:2px solid var(--gate);background:var(--gate-soft);border-radius:10px;padding:12px 14px;display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between}
+.gatebox p{margin:0;font-size:.9rem}
+.gatebox .signed{font:500 .85rem var(--mono);color:var(--gate)}
+table{width:100%;border-collapse:collapse;font-size:.85rem}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font:500 .68rem var(--mono);text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+td.num{font-family:var(--mono);text-align:right;white-space:nowrap}
+.chip{display:inline-flex;align-items:center;gap:4px;font:500 .7rem var(--mono);padding:2px 7px;border-radius:999px;white-space:nowrap}
+.c-ok{background:var(--ok-soft);color:var(--ok)} .c-warn{background:var(--warn-soft);color:var(--warn)}
+.c-bad{background:var(--bad-soft);color:var(--bad)} .c-unk{background:var(--unk-soft);color:var(--unk)} .c-hyp{background:var(--accent-soft);color:var(--accent)}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:14px}
+.tile{border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.tile .v{font-weight:700;font-size:1.45rem}
+.tile .l{font-size:.78rem;color:var(--muted)}
+.note{font-size:.83rem;color:var(--muted);margin:10px 0 0}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media (max-width:760px){.two{grid-template-columns:1fr}}
+.qcard{border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:8px;padding:10px 12px;margin-bottom:8px}
+.qcard.hi{border-left-color:var(--bad)}
+.qcard .q{font-weight:600}
+.qcard .meta{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:.78rem;color:var(--muted);margin-top:6px}
+.qcard .meta b{color:var(--ink);font-weight:500}
+.rec{font:12px/1.55 var(--mono);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px 12px;white-space:pre-wrap;overflow-x:auto}
+.rec .k{color:var(--accent)}
+.chart{position:relative}
+.chart svg{display:block;width:100%;height:auto;overflow:visible}
+.chart .axis text{font:11px var(--mono);fill:var(--muted)}
+.chart .grid line{stroke:var(--line);stroke-width:1}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:.8rem;color:var(--muted);margin:4px 0 6px}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend i{display:inline-block;width:14px;height:3px;border-radius:2px}
+.tip{position:absolute;pointer-events:none;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:6px 9px;font-size:.78rem;box-shadow:0 4px 14px rgba(0,0,0,.14);opacity:0;transition:opacity .08s;white-space:nowrap;z-index:5}
+.tip b{font-family:var(--mono)}
+.ledger h2{margin-bottom:4px}
+.lrow{border-top:1px solid var(--line);padding:9px 0;font-size:.82rem;line-height:1.35}
+.lrow:first-of-type{border-top:none}
+.lrow .top{display:flex;justify-content:space-between;gap:6px;align-items:center;margin-bottom:3px}
+.lrow .id{font:500 .7rem var(--mono);color:var(--faint)}
+.lrow .wh{color:var(--faint);font-size:.75rem;margin-top:3px}
+.lrow.flash{animation:fl 1.2s ease}
+@keyframes fl{0%{background:var(--accent-soft)}100%{background:transparent}}
+.conf{font:500 .66rem var(--mono);color:var(--muted)}
+.caprule{font-size:.74rem;color:var(--faint);margin:6px 0 10px}
+.catch{font-weight:700;font-size:2.2rem;line-height:1}
+footer{margin-top:26px;font-size:.8rem;color:var(--faint);max-width:92ch}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand"><span class="dot">W</span><a href="https://wfmlabs.com">WFM Labs</a> <span style="color:var(--faint);font-weight:400">/ demos</span></div>
+  <p class="eyebrow">Walk-through · migration hand-offs</p>
+  <h1>The forecaster hand-off, with nothing left unasked <span class="synth">synthetic example</span></h1>
+  <p class="lede">When a client moves between operations, one forecaster hands a methodology to another. The departure side holds years of history in a workbook; the arrival side builds a new plan in a new tool. The risk sits in the assumptions between them: constants typed into cells, rates borrowed from other clients, definitions nobody wrote down. This walk-through shows what an agent team does in the background to surface those assumptions, test them against what went wrong last time, and turn every gap into a question for the arrival forecaster, so both sides sign the same plan.</p>
+  <div class="intro">
+    <div class="ibox"><b>Why a Codespace</b>Drop the departure workbook into a private, company-controlled cloud workspace. The agents, the data and the audit trail sit in one place, with nothing to install, and a new workbook is analyzed minutes after it lands.</div>
+    <div class="ibox"><b>What the agents do</b>Five roles: a data engineer that loads and repairs, a statistician that measures, a causal analyst that tests, a synthesizer that writes, and a coordinator that keeps owners, dates and gates.</div>
+    <div class="ibox"><b>What stays human</b>Purple steps need a person to sign before the next one runs. Every claim carries a status and a confidence in the ledger on the right; nothing low-confidence reaches a readout.</div>
+  </div>
+
+  <div class="layout">
+    <aside class="panel" aria-label="Stages"><div class="steps" id="steps"></div><button class="reset" id="reset" type="button">Reset walk-through</button></aside>
+    <main class="panel" id="stage" aria-live="polite"></main>
+    <aside class="panel ledger" aria-label="Confidence ledger">
+      <p class="eyebrow" style="margin-top:0">Agent artifact</p>
+      <h2>Confidence ledger</h2>
+      <p class="caprule">Asserted values start Low. A pattern in data caps at Medium. Only measured or causally tested claims reach High.</p>
+      <div id="ledger"></div>
+    </aside>
+  </div>
+
+  <footer>Everything on this page is synthetic and illustrative; it describes no real client or company. “Client 1” is a past migration whose lessons have been generalized; “Client 2” is the next one. The walk-through mirrors an agent workflow built on Claude Code, in which each gate is enforced by a signed approval file that the next stage checks before it runs. <a href="https://wfmlabs.com">wfmlabs.com</a></footer>
+</div>
+
+<script>
+(() => {
+/* ---------- synthetic data ---------- */
+const MKTS=[
+ {name:"Market 1",off:0,pk:11.5,w:3.4,ev:.25,wt:.30,lang:"English"},
+ {name:"Market 2",off:2,pk:12,w:4.2,ev:.55,wt:.20,lang:"English"},
+ {name:"Market 3",off:3,pk:11,w:3.0,ev:.15,wt:.15,lang:"Local + English"},
+ {name:"Market 4",off:-2,pk:13,w:4.8,ev:.8,wt:.10,lang:"Local"},
+ {name:"Market 5",off:1,pk:12,w:3.6,ev:.4,wt:.15,lang:"Local + English"},
+ {name:"24/7 queue",off:null,wt:.10,lang:"English"}];
+function hourly(m){const o=[];for(let h=0;h<24;h++){let v;if(m.off===null)v=.6+.4*Math.max(0,Math.sin((h-6)/24*2*Math.PI));else{const lh=(h+m.off+24)%24;v=Math.exp(-Math.pow((lh-m.pk)/m.w,2))+m.ev*Math.exp(-Math.pow((lh-19.5)/2,2))+.03;}o.push(v)}const s=o.reduce((a,b)=>a+b,0);return o.map(v=>v/s)}
+const HEAT=MKTS.map(m=>({m,v:hourly(m)})); const OPEN=8,CLOSE=18;
+function ooh(m,v){return v.reduce((a,x,h)=>{const lh=m.off===null?h:(h+m.off+24)%24;return a+((lh<OPEN||lh>=CLOSE)?x:0)},0)}
+const OOH_TOTAL=HEAT.reduce((a,r)=>a+ooh(r.m,r.v)*r.m.wt,0);
+const WEEKS=[];for(let w=26;w<=48;w++)WEEKS.push(w);
+const REQ=WEEKS.map(w=>96-(w>=40?(w-40):0)), DEP=WEEKS.map(w=>w<30?98-(w-26)*.5:Math.max(0,96-(w-30)*7.2)), ARR=WEEKS.map(w=>w<36?0:Math.min(92,(w-36)*10.5));
+const POST=[1,2,3,4,5,6,7,8,9,10,11,12,13], AHT_A=520, BAND=.08, AHT_ACT=[548,602,688,741,766,752,730,705,690,671,655,640,628];
+
+/* ---------- ledger ---------- */
+const LEDGER={
+ "A-01":{claim:"Departure baseline uses one blended rate for six markets"},
+ "A-02":{claim:"Forecast handle time understates actual (departure)"},
+ "A-03":{claim:"Arrival contact rate"},
+ "A-04":{claim:"Arrival handle time"},
+ "A-05":{claim:"Volume outside arrival business hours is material"},
+ "A-06":{claim:"Arrival ramp covers departure run-off"},
+ "A-07":{claim:"The handle-time gap is driven by process, not tenure"}};
+Object.values(LEDGER).forEach(r=>{r.status="—";r.conf="";r.why="";});
+const SC={"Hypothesis":"c-hyp","Asserted":"c-unk","Tested":"c-warn","Validated":"c-ok","Rejected":"c-bad","Agreed":"c-ok","Open":"c-warn","—":"c-unk"};
+
+/* ---------- lessons (generalized from Client 1) ---------- */
+const LESSONS=[
+ ["L-001","Baseline","Rates borrowed from the arrival platform’s standard clients, not the markets’ own history","Not ready","Arrival plan uses a platform-standard contact rate; departure history by market is ~2.6× higher"],
+ ["L-002","Automation","Borrowed rates already assumed self-service that may not be switched on","Unknown","Arrival rate is post-deflection; no confirmation the bot is on for this client"],
+ ["L-003","Handle time","Workload rises through handle time when the new platform adds manual steps","At risk","Arrival AHT asserted “same as today”; no process named"],
+ ["L-004","Definitions","Each side measures chat handle time differently","Unknown","No written definition on either side"],
+ ["L-005","Delivered hours","Productive hours per head not established; a lean first phase masks the gap","At risk","Departure shrinkage held flat at 22% vs actual 14–36%"],
+ ["L-006","Supply","Supply and requirement never shown on one weekly axis","Not ready","Departure FTE reaches zero in week 43; arrival meets requirement only from week 45"],
+ ["L-007","Denominator","What counts as a unit of work changes at cutover","Unknown","Transaction definition not agreed"],
+ ["L-008","Hand-off","The departure forecaster’s per-market model is never requested","At risk","No hand-off session scheduled; arrival plan built without the departure workbook"],
+ ["L-009","Hand-off","An unvalidated alarm figure reaches the client","Ready","Readout gate requires Medium+ confidence before anything leaves"],
+ ["C-001","Hours","A 24/7 queue moves to business-hours teams","Not ready",""],
+ ["C-002","Language","A market loses language coverage","At risk","Market 4 needs local-language coverage; arrival roster unconfirmed"]];
+LESSONS[9][4]=`${Math.round(OOH_TOTAL*100)}% of volume falls outside arrival hours; the 24/7 queue has no home`;
+const VC={"Ready":"c-ok","At risk":"c-warn","Not ready":"c-bad","Unknown":"c-unk"}, VI={"Ready":"✓","At risk":"!","Not ready":"✕","Unknown":"?"};
+
+/* ---------- stages ---------- */
+const S=[
+ {title:"Ingest the departure workbook",short:"Load in a Codespace",agent:"Data engineer",
+  why:"The departure forecaster’s workbook is dropped into a private Codespace as-is. Nothing is retyped.",
+  log:[["ag","Data engineer"," reading 3 segment workbooks (synthetic)…"],["","  21 tabs each · 10 external links · Erlang add-in unresolved"],["warn","  830 #NAME? cells: the staffing math is dead, outputs are stale cache"],["","  roster hashed at load; no agent names reach the model"],["ok","  ten clean tables written: volume, forecast, parameters, shrinkage, supply, ramp, intervals, scope, roster, defects"]],
+  ledger:{"A-02":["Tested","Medium","Actual handle-time median vs the flat forecast constant"]},render:rIngest},
+ {title:"Parameter census",short:"Cells become assumptions",agent:"Data engineer + statistician",
+  why:"Every constant typed into a cell is an assumption nobody registered. Each one becomes a record with its cell, value and evidence tier.",
+  log:[["ag","Statistician"," scanning parameter cells across the planning horizon"],["","  9 constants found; 0 on any register"],["warn","  handle time, shrinkage and occupancy held flat for every future week"],["ag","Data engineer"," mapping tab funnels six markets into one row"],["ok","  9 assumption records created (departure side)"]],
+  ledger:{"A-01":["Hypothesis","Low","Mapping tab funnels six markets into one row"]},render:rCensus},
+ {title:"Capture arrival intel",short:"The new plan’s assumptions",agent:"Data engineer + intake",
+  why:"The arrival forecaster’s plan lives in a different tool, plus checklists, emails and meetings. The agents extract every stated assumption and grade it.",
+  log:[["ag","Intake"," 5 items: arrival plan summary, checklist, 2 emails, 1 meeting transcript"],["","  extracting value · owner · source · grade"],["warn","  arrival contact rate taken from the platform’s standard clients"],["bad","  arrival handle time stated as ‘same as today’; no process named"],["ok","  8 assumption records created (arrival side)"]],
+  ledger:{"A-03":["Asserted","Low","Platform-standard rate, post-deflection"],"A-04":["Asserted","Low","“Same as today”; meeting, no evidence"],"A-06":["Asserted","Low","Hiring email; ramp curve not attached"]},render:rArrival},
+ {title:"Bridge the two sides",short:"Pair every assumption",agent:"Data engineer",gate:{role:"Both forecasters",what:"confirm the pairing and the re-cut by market, hours and language"},
+  why:"Departure and arrival assumptions are paired line by line. The departure history is re-cut along the lines the arrival side will staff by.",
+  log:[["ag","Data engineer"," pairing 9 departure and 8 arrival assumptions"],["","  re-cutting the pooled history by market × hour × language"],["bad",`  ${Math.round(OOH_TOTAL*100)}% of volume falls outside arrival business hours`],["warn","  contact rate: departure history ~2.6× the arrival plan"],["ok","  14 pairs · 6 aligned · 5 gaps · 3 with no arrival value"]],
+  ledger:{"A-05":["Tested","Medium","Interval patterns × arrival hours of operation"]},render:rBridge},
+ {title:"Test against past migrations",short:"Run the lesson library",agent:"Statistician + causal analyst",
+  why:"Each lesson from Client 1 is a structured record with a deterministic test. All of them run against Client 2 and return a verdict with evidence.",
+  log:[["ag","Statistician"," staffing math recomputed in code; cached cells ignored"],["","  running 11 lessons (9 from Client 1, 2 new for this move)"],["ag","Causal analyst"," A-07 process vs tenure: no pilot cohort, effect not identifiable"],["","  A-07 stays a Hypothesis; request a two-week pilot"],["bad","  3 Not ready · 4 At risk · 1 Ready · 3 Unknown"]],
+  ledger:{"A-01":["Validated","High","Measured in mapping and country tabs"],"A-02":["Validated","High","26 weeks of actuals; median +18%"],"A-03":["Rejected","Medium","Platform rate vs departure history: ~2.6× gap"],"A-06":["Rejected","Medium","Gap weeks 43–45 on the supply walk"],"A-07":["Hypothesis","Low","Needs a pilot; a pattern alone can’t reach High"]},render:rTest},
+ {title:"Questions for the arrival forecaster",short:"Turn gaps into asks",agent:"Synthesizer + coordinator",
+  why:"Every gap becomes a specific question: what to ask, why it matters, the evidence behind it, what answer would close it, and who owns it by when.",
+  log:[["ag","Synthesizer"," drafting one question per gap, from Medium/High claims only"],["","  ranking by FTE impact and lead time"],["ag","Coordinator"," owners and due dates attached"],["ok","  7 questions for the arrival forecaster · 2 for the departure forecaster"]],
+  ledger:{},render:rQuestions},
+ {title:"Alignment session",short:"One signed register",agent:"Coordinator",gate:{role:"Both forecasters",what:"sign the assumption register"},
+  why:"Both forecasters meet with the questions in hand. Each assumption ends Agreed, Agreed with a range, or Open with an owner and date. The signed register is the plan both sides build from.",
+  log:[["ag","Coordinator"," session record: 14 assumption pairs walked"],["ok","  9 Agreed · 3 Agreed with a range · 2 Open with owner and date"],["","  contact rate re-based on each market’s own history"],["warn","  handle time: agreed as a range pending a pilot"]],
+  ledger:{"A-03":["Agreed","Medium","Re-based on each market’s own history"],"A-04":["Open","Low","Agreed as 520–640 s until a pilot reads out"],"A-06":["Agreed","Medium","Wave 1 moved to week 40"]},render:rAlign},
+ {title:"Watch, then learn",short:"Misses become lessons",agent:"Statistician + coordinator",gate:{role:"Lesson owner",what:"approve the new lesson record"},
+  why:"After go-live every agreed assumption is checked against actuals. Each miss becomes a new structured lesson, so the next migration starts with a bigger library.",
+  log:[["ag","Statistician"," weeks 1–13: actuals vs every agreed assumption"],["bad","  email handle time above the agreed range from week 3"],["","  A-04 rejected by actuals; pilot shows process effect"],["warn","  one miss no lesson flagged: after-hours callbacks overflowing to voice"],["ok","  catch rate 3 of 4 · new lesson L-010 drafted"]],
+  ledger:{"A-04":["Rejected","High","Actuals above the agreed range; peak +47%"],"A-07":["Validated","Medium","Pilot: same tenure, new process, +31% AHT"]},render:rLearn}];
+
+let cur=0; const done=new Set(), signed=new Set(); const $=id=>document.getElementById(id);
+const unlocked=i=>i===0||(done.has(i-1)&&(!S[i-1].gate||signed.has(i-1)));
+function drawSteps(){
+  $("steps").innerHTML=S.map((s,i)=>`<button class="step ${done.has(i)?'done':''}" type="button" data-i="${i}" ${i===cur?'aria-current="step"':''} ${unlocked(i)?'':'disabled'}><span class="n">${done.has(i)?'✓':i+1}</span><span>${s.title}<small>${s.short}${s.gate?` · <span class="lock">✎ ${s.gate.role}</span>`:''}</small></span></button>`).join("");
+  $("steps").querySelectorAll(".step").forEach(b=>b.onclick=()=>{if(!b.disabled){cur=+b.dataset.i;drawStage();}});
+}
+function drawLedger(fl=[]){
+  $("ledger").innerHTML=Object.entries(LEDGER).map(([id,r])=>`<div class="lrow ${fl.includes(id)?'flash':''}"><div class="top"><span class="id">${id}</span><span><span class="chip ${SC[r.status]||'c-unk'}">${r.status}</span> ${r.conf?`<span class="conf">${r.conf}</span>`:''}</span></div>${r.claim}${r.why?`<div class="wh">${r.why}</div>`:''}</div>`).join("");
+}
+const fmt=([c,a,b])=>c==="ag"?`<div><span class="ag">▸ ${a}</span>${b}</div>`:`<div class="${c}">${a}</div>`;
+function drawStage(){
+  drawSteps(); const s=S[cur], d=done.has(cur);
+  $("stage").innerHTML=`<div class="stagehead"><div><p class="eyebrow" style="margin:0">Stage ${cur+1} of ${S.length}</p><h2>${s.title}</h2></div><span class="agent">${s.agent}</span></div>
+   <p class="why">${s.why}</p>
+   <div class="log" id="log">${d?s.log.map(fmt).join(""):'<div style="color:var(--faint)">Waiting to run…</div>'}</div>
+   ${d?'':`<button class="btn" id="run" type="button">Run stage ${cur+1}</button>`}<div id="art"></div><div id="gate"></div>`;
+  if(d){s.render($("art"));drawGate();} else $("run").onclick=run;
+}
+function run(){
+  const s=S[cur],log=$("log"),btn=$("run");btn.disabled=true;log.innerHTML="";
+  const fast=matchMedia("(prefers-reduced-motion: reduce)").matches; let k=0;
+  (function tick(){ if(k<s.log.length){log.insertAdjacentHTML("beforeend",fmt(s.log[k++]));log.scrollTop=log.scrollHeight;setTimeout(tick,fast?0:320);return;}
+    const ids=Object.keys(s.ledger); ids.forEach(id=>{const[st,cf,w]=s.ledger[id];Object.assign(LEDGER[id],{status:st,conf:cf,why:w});});
+    drawLedger(ids);done.add(cur);btn.remove();s.render($("art"));drawGate();drawSteps(); })();
+}
+function drawGate(){
+  const s=S[cur],g=$("gate"); const next=()=>{const n=$("next");if(n)n.onclick=()=>{cur++;drawStage();};};
+  if(!s.gate){g.innerHTML=cur<S.length-1?`<div style="margin-top:14px"><button class="btn" id="next" type="button">Next stage →</button></div>`:'';next();return;}
+  if(signed.has(cur)){g.innerHTML=`<div class="gatebox"><p class="signed">✎ Signed by ${s.gate.role} · approval file written</p>${cur<S.length-1?'<button class="btn" id="next" type="button">Next stage →</button>':''}</div>`;next();return;}
+  g.innerHTML=`<div class="gatebox"><p><b>Human gate.</b> ${s.gate.role} must ${s.gate.what}${cur<S.length-1?` before stage ${cur+2} can run`:''}.</p><button class="btn gate" id="sign" type="button">Sign as ${s.gate.role}</button></div>`;
+  $("sign").onclick=()=>{signed.add(cur);drawGate();drawSteps();};
+}
+
+/* ---------- renderers ---------- */
+function rIngest(el){el.innerHTML=`<div class="tiles"><div class="tile"><div class="v">3</div><div class="l">segment workbooks dropped in</div></div><div class="tile"><div class="v">830</div><div class="l">dead staffing-math cells</div></div><div class="tile"><div class="v">10</div><div class="l">external links to dead files</div></div><div class="tile"><div class="v">10</div><div class="l">clean tables out</div></div></div>
+ <table><thead><tr><th>Tab</th><th>Becomes</th><th>Note</th></tr></thead><tbody>
+ <tr><td>Actuals</td><td>volume, handle time, service level by week</td><td>the departure baseline</td></tr>
+ <tr><td>Forecast summary</td><td>forecast table + parameters</td><td><span class="chip c-bad">math dead</span> recomputed in code</td></tr>
+ <tr><td>Hiring plan</td><td>supply walk</td><td>run-off by week</td></tr>
+ <tr><td>Shrinkage</td><td>planned vs actual by category</td><td></td></tr>
+ <tr><td>Call distributions</td><td>interval patterns</td><td>hour × day by queue</td></tr>
+ <tr><td>Mapping</td><td>scope map</td><td><span class="chip c-warn">2 rows unresolved</span></td></tr>
+ <tr><td>Headcount</td><td>hashed roster</td><td>names never leave the loader</td></tr></tbody></table>`;}
+function rCensus(el){el.innerHTML=`<h3>Assumptions hidden in cells (departure side)</h3><table><thead><tr><th>ID</th><th>Parameter</th><th>Cell</th><th>Value</th><th>Tier</th></tr></thead><tbody>
+ <tr><td>P-1</td><td>Service-level target</td><td>FS!R</td><td class="num">80/20</td><td><span class="chip c-unk">asserted</span></td></tr>
+ <tr><td>P-2</td><td>Occupancy cap</td><td>FS!U</td><td class="num">0.85</td><td><span class="chip c-unk">asserted</span></td></tr>
+ <tr><td>P-3</td><td>Forecast call handle time</td><td>FS!M</td><td class="num">1,250 s, flat</td><td><span class="chip c-unk">planned</span></td></tr>
+ <tr><td>P-4</td><td>Actual call handle time</td><td>FS!N</td><td class="num">1,310 / 1,480 / 1,840 s</td><td><span class="chip c-ok">measured</span></td></tr>
+ <tr><td>P-5</td><td>Shrinkage plan</td><td>FS!BY</td><td class="num">22%, flat</td><td><span class="chip c-unk">planned</span></td></tr>
+ <tr><td>P-6</td><td>Actual shrinkage</td><td>FS!BZ</td><td class="num">14–36%</td><td><span class="chip c-ok">measured</span></td></tr>
+ <tr><td>P-7</td><td>Contact rate</td><td>Country set-up</td><td class="num">one row, six markets</td><td><span class="chip c-warn">blended</span></td></tr>
+ <tr><td>P-8</td><td>Messaging handle time</td><td>FS!AX</td><td class="num">constant</td><td><span class="chip c-unk">planned</span></td></tr>
+ <tr><td>P-9</td><td>Abandon target</td><td>FS!W</td><td class="num">empty</td><td><span class="chip c-bad">missing</span></td></tr></tbody></table>
+ <p class="note">None of these is wrong on its own. The problem is that none was registered, so none would have been put to the arrival forecaster.</p>`;}
+function rArrival(el){el.innerHTML=`<h3>Arrival assumptions extracted from unstructured intel</h3><table><thead><tr><th>Assumption</th><th>Value</th><th>Source</th><th>Grade</th></tr></thead><tbody>
+ <tr><td>Contact rate</td><td>platform standard</td><td>Plan summary</td><td><span class="chip c-unk">asserted</span></td></tr>
+ <tr><td>Self-service deflection</td><td>included in the rate</td><td>Plan summary</td><td><span class="chip c-unk">implicit</span></td></tr>
+ <tr><td>Handle time</td><td>“same as today”</td><td>Meeting</td><td><span class="chip c-unk">asserted</span></td></tr>
+ <tr><td>Hours of operation</td><td>08:00–18:00 local</td><td>Checklist</td><td><span class="chip c-ok">documented</span></td></tr>
+ <tr><td>Languages</td><td>“all current”</td><td>Email</td><td><span class="chip c-unk">asserted</span></td></tr>
+ <tr><td>Hiring ramp</td><td>4 waves from week 36</td><td>Email</td><td><span class="chip c-warn">partial</span></td></tr>
+ <tr><td>Messaging timeout</td><td>10 → 15 min</td><td>Checklist</td><td><span class="chip c-ok">documented</span></td></tr>
+ <tr><td>Out-of-hours plan</td><td>none found</td><td>—</td><td><span class="chip c-bad">missing</span></td></tr></tbody></table>`;}
+function rBridge(el){
+  const rows=HEAT.map(r=>({m:r.m,p:ooh(r.m,r.v)}));
+  el.innerHTML=`<h3>Paired assumptions</h3><table><thead><tr><th>Topic</th><th>Departure</th><th>Arrival</th><th>Status</th></tr></thead><tbody>
+  <tr><td>Contact rate</td><td>own history, by market</td><td>platform standard</td><td><span class="chip c-bad">gap ~2.6×</span></td></tr>
+  <tr><td>Handle time</td><td>median 1,480 s, rising</td><td>“same as today”</td><td><span class="chip c-warn">no process named</span></td></tr>
+  <tr><td>Hours</td><td>follow-the-sun + 24/7 queue</td><td>08:00–18:00</td><td><span class="chip c-bad">${Math.round(OOH_TOTAL*100)}% outside</span></td></tr>
+  <tr><td>Supply</td><td>zero by week 43</td><td>covers from week 45</td><td><span class="chip c-bad">2-week hole</span></td></tr>
+  <tr><td>Chat handle time</td><td>worked time</td><td>not stated</td><td><span class="chip c-unk">no arrival value</span></td></tr></tbody></table>
+  <h3 style="margin-top:16px">Hourly volume by market, departure clock, with arrival business hours outlined</h3><div class="chart" id="heat"></div>
+  <table style="margin-top:8px"><thead><tr><th>Market</th><th>Language</th><th class="num">Share of pool</th><th class="num">Outside arrival hours</th></tr></thead><tbody>${rows.map(o=>`<tr><td>${o.m.name}</td><td>${o.m.lang}</td><td class="num">${Math.round(o.m.wt*100)}%</td><td class="num">${Math.round(o.p*100)}%</td></tr>`).join("")}</tbody></table>`;
+  drawHeat($("heat"));}
+function rTest(el){el.innerHTML=`<h3>The lesson library, run on Client 2</h3><table><thead><tr><th>Lesson</th><th>Category</th><th>Verdict</th><th>Evidence</th></tr></thead><tbody>
+ ${LESSONS.map(([id,c,t,v,e])=>`<tr><td><b>${id}</b></td><td>${c}<div style="color:var(--faint);font-size:.78rem">${t}</div></td><td><span class="chip ${VC[v]}">${VI[v]} ${v}</span></td><td>${e}</td></tr>`).join("")}</tbody></table>
+ <h3 style="margin-top:16px">L-006 · Supply walk: departure run-off against the arrival ramp</h3>
+ <div class="legend"><span><i style="background:var(--s1)"></i>Departure FTE</span><span><i style="background:var(--s2)"></i>Arrival FTE</span><span><i style="background:transparent;border-top:2px dashed var(--ref);height:0"></i>Requirement</span></div>
+ <div class="chart" id="supply"></div>`; drawSupply($("supply"));}
+function rQuestions(el){
+  const Q=[["hi","Which contact rate does your plan use for each market, and does it come from these markets’ own history?","L-001 · departure history runs ~2.6× the platform standard","A rate per market, traced to departure history","Arrival forecaster","Week 1"],
+   ["hi","Is self-service deflection switched on for this client at go-live? If not, what is the rate without it?","L-002 · the platform rate is post-deflection","On/off, with a range","Arrival forecaster + product","Week 1"],
+   ["hi","Where does out-of-hours and 24/7 volume land after cutover?",`C-001 · ${Math.round(OOH_TOTAL*100)}% of volume falls outside 08:00–18:00`,"A named team and hours, sized by market","Arrival forecaster","Week 2"],
+   ["hi","In which week does trained arrival FTE first meet requirement?","L-006 · departure FTE reaches zero in week 43","A week-by-week ramp on the same axis as run-off","Arrival forecaster + recruiting","Week 2"],
+   ["","Which process will arrival agents follow, and what handle time does a pilot show?","L-003 · ‘same as today’ has no process behind it","A named process and a two-week pilot read-out","Arrival forecaster","Week 3"],
+   ["","What exactly does your chat handle time count: worked time, elapsed time, concurrency?","L-004 · the two sides have no shared definition","One written definition, signed by both","Both forecasters","Week 2"],
+   ["","How many productive hours per head-week does your plan assume?","L-005 · departure shrinkage swings 14–36%","A number with a range","Arrival forecaster","Week 2"],
+   ["","Please walk the arrival forecaster through your per-market model.","L-008 · the departure model has not been requested","A recorded walkthrough","Departure forecaster","Week 1"],
+   ["","Which shrinkage categories drove the 36% weeks?","L-005 · actual vs flat plan","Categories and weeks","Departure forecaster","Week 1"]];
+  el.innerHTML=`<p class="note" style="margin-top:0">Ranked by FTE impact and lead time. Red edge = must close before the plan is signed.</p>`+Q.map(([c,q,w,cl,o,d])=>`<div class="qcard ${c}"><div class="q">${q}</div><div class="meta"><span><b>Why:</b> ${w}</span><span><b>Closes when:</b> ${cl}</span><span><b>Owner:</b> ${o}</span><span><b>Due:</b> ${d}</span></div></div>`).join("");}
+function rAlign(el){el.innerHTML=`<div class="tiles"><div class="tile"><div class="v">9</div><div class="l">Agreed</div></div><div class="tile"><div class="v">3</div><div class="l">Agreed with a range</div></div><div class="tile"><div class="v">2</div><div class="l">Open, with owner and date</div></div></div>
+ <h3>The signed assumption register (excerpt)</h3><table><thead><tr><th>Assumption</th><th>Agreed value</th><th>Status</th><th>Basis</th></tr></thead><tbody>
+ <tr><td>Contact rate</td><td>each market’s own history</td><td><span class="chip c-ok">Agreed</span></td><td>Departure actuals, 26 weeks</td></tr>
+ <tr><td>Self-service</td><td>off at go-live; on from week 8</td><td><span class="chip c-ok">Agreed</span></td><td>Product confirmation</td></tr>
+ <tr><td>Handle time</td><td>520–640 s email</td><td><span class="chip c-warn">Agreed, range</span></td><td>Pending pilot read-out</td></tr>
+ <tr><td>Out-of-hours volume</td><td>regional evening team</td><td><span class="chip c-warn">Open · arrival · week 2</span></td><td>Sizing in progress</td></tr>
+ <tr><td>Arrival ramp</td><td>wave 1 moved to week 40</td><td><span class="chip c-ok">Agreed</span></td><td>Recruiting confirmation</td></tr>
+ <tr><td>Chat handle time</td><td>worked time, concurrency noted</td><td><span class="chip c-ok">Agreed</span></td><td>Written definition, both signed</td></tr></tbody></table>
+ <p class="note">This register, not a slide, is what both forecasters build from. Every later change is a new version with a reason.</p>`;}
+function rLearn(el){el.innerHTML=`<h3>After go-live: email handle time against the agreed range</h3>
+ <div class="legend"><span><i style="background:var(--s1)"></i>Actual email handle time (s)</span><span><i style="background:var(--accent-soft);height:10px"></i>Agreed range</span></div><div class="chart" id="watch"></div>
+ <div class="two" style="margin-top:14px"><div><p class="eyebrow" style="margin:0">Catch rate</p><div class="catch" style="margin-top:6px">75%</div><p class="note">3 of 4 post go-live misses were flagged by a lesson before go-live.</p></div>
+ <div><h3>New lesson record</h3><div class="rec"><span class="k">id:</span> L-010
+<span class="k">category:</span> Hours and coverage
+<span class="k">statement:</span> Deferred out-of-hours work returns next morning as callbacks and overflows to voice
+<span class="k">assumption:</span> "Out-of-hours volume waits"
+<span class="k">owner_side:</span> arrival forecaster
+<span class="k">question_poa:</span> How are next-morning callbacks sized, by market?
+<span class="k">test.check:</span> unsized_callbacks / daily_volume
+<span class="k">test.threshold:</span> &gt; 5% → Not ready
+<span class="k">origin:</span> Client 2, week 4 after go-live
+<span class="k">status:</span> proposed → approved
+<span class="k">track_record:</span> []</div></div></div>
+ <p class="note"><b>Library: 11 → 12 lessons.</b> Client 3 starts with everything Client 1 and Client 2 taught.</p>`; drawWatch($("watch"));}
+
+/* ---------- charts ---------- */
+const NS="http://www.w3.org/2000/svg"; const mk=(t,a,p)=>{const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);if(p)p.appendChild(e);return e;};
+const tipFor=b=>{const t=document.createElement("div");t.className="tip";b.appendChild(t);return t;};
+function place(t,b,x,y,h){t.innerHTML=h;t.style.opacity=1;let l=x+12;if(l+t.offsetWidth>b.clientWidth)l=x-12-t.offsetWidth;t.style.left=Math.max(0,l)+"px";t.style.top=Math.max(0,y-10)+"px";}
+function drawHeat(box){
+  const W=720,H=250,ml=92,mt=8,mr=8,mb=26,cw=(W-ml-mr)/24,ch=(H-mt-mb)/HEAT.length;
+  const svg=mk("svg",{viewBox:`0 0 ${W} ${H}`,role:"img","aria-label":"Hourly volume share by market"},box);
+  const max=Math.max(...HEAT.flatMap(r=>r.v)); const cs=getComputedStyle(document.documentElement); const ramp=["--h0","--h1","--h2","--h3","--h4","--h5"].map(v=>cs.getPropertyValue(v).trim()); const t=tipFor(box);
+  HEAT.forEach((r,ri)=>{
+    mk("text",{x:ml-8,y:mt+ri*ch+ch/2+4,"text-anchor":"end","font-size":"11",style:"fill:var(--muted);font-family:var(--mono)"},svg).textContent=r.m.name;
+    r.v.forEach((v,h)=>{const rect=mk("rect",{x:ml+h*cw+1,y:mt+ri*ch+1,width:cw-2,height:ch-2,rx:3,fill:ramp[Math.min(5,Math.floor(v/max*6))]},svg);
+      const lh=r.m.off===null?h:(h+r.m.off+24)%24, ins=lh>=OPEN&&lh<CLOSE;
+      rect.addEventListener("mousemove",e=>{const b=box.getBoundingClientRect();place(t,box,e.clientX-b.left,e.clientY-b.top,`${r.m.name} · ${String(h).padStart(2,"0")}:00<br><b>${(v*100).toFixed(1)}%</b> of the day · ${ins?"inside":"outside"} arrival hours`);});
+      rect.addEventListener("mouseleave",()=>t.style.opacity=0);});
+    const s=r.m.off===null?OPEN:(OPEN-r.m.off+24)%24;
+    mk("rect",{x:ml+s*cw,y:mt+ri*ch,width:(CLOSE-OPEN)*cw,height:ch,fill:"none",style:"stroke:var(--ink)","stroke-width":2,rx:4,...(r.m.off===null?{"stroke-dasharray":"5 4"}:{})},svg);
+  });
+  const ax=mk("g",{class:"axis"},svg); for(let h=0;h<24;h+=3) mk("text",{x:ml+h*cw+cw/2,y:H-8,"text-anchor":"middle"},ax).textContent=String(h).padStart(2,"0");
+}
+function lineChart(box,{xs,series,ref,band,ymin,ymax,xlab,yf,label}){
+  const W=720,H=260,ml=46,mr=74,mt=10,mb=28, sx=x=>ml+(x-xs[0])/(xs[xs.length-1]-xs[0])*(W-ml-mr), sy=y=>mt+(1-(y-ymin)/(ymax-ymin))*(H-mt-mb);
+  const svg=mk("svg",{viewBox:`0 0 ${W} ${H}`,role:"img","aria-label":label},box), g=mk("g",{class:"grid"},svg), ax=mk("g",{class:"axis"},svg);
+  for(let i=0;i<=5;i++){const v=ymin+(ymax-ymin)*i/5;mk("line",{x1:ml,x2:W-mr,y1:sy(v),y2:sy(v)},g);mk("text",{x:ml-6,y:sy(v)+4,"text-anchor":"end"},ax).textContent=yf(v);}
+  xs.forEach((x,i)=>{if(i%3===0)mk("text",{x:sx(x),y:H-8,"text-anchor":"middle"},ax).textContent=xlab(x);});
+  if(band) mk("polygon",{points:xs.map(x=>`${sx(x)},${sy(band.hi)}`).join(" ")+" "+xs.slice().reverse().map(x=>`${sx(x)},${sy(band.lo)}`).join(" "),style:"fill:var(--accent-soft)"},svg);
+  const labels=[];
+  if(ref){mk("polyline",{points:xs.map((x,i)=>`${sx(x)},${sy(ref.v[i])}`).join(" "),fill:"none",style:"stroke:var(--ref)","stroke-width":2,"stroke-dasharray":"6 5"},svg);labels.push({y:sy(ref.v.at(-1))+4,t:ref.name,c:"--muted"});}
+  series.forEach(s=>{mk("polyline",{points:xs.map((x,i)=>`${sx(x)},${sy(s.v[i])}`).join(" "),fill:"none",style:`stroke:var(${s.c})`,"stroke-width":2,"stroke-linejoin":"round","stroke-linecap":"round"},svg);if(s.label)labels.push({y:sy(s.v.at(-1))+4,t:s.label,c:"--ink"});});
+  labels.sort((a,b)=>a.y-b.y);for(let i=1;i<labels.length;i++)if(labels[i].y-labels[i-1].y<14)labels[i].y=labels[i-1].y+14;
+  labels.forEach(l=>mk("text",{x:W-mr+6,y:l.y,"font-size":"11",style:`fill:var(${l.c})`},svg).textContent=l.t);
+  const cross=mk("line",{y1:mt,y2:H-mb,style:"stroke:var(--faint)","stroke-width":1,opacity:0},svg), dots=series.map(s=>mk("circle",{r:4.5,style:`fill:var(${s.c});stroke:var(--surface)`,"stroke-width":2,opacity:0},svg));
+  const hit=mk("rect",{x:ml,y:mt,width:W-ml-mr,height:H-mt-mb,fill:"transparent"},svg), t=tipFor(box);
+  hit.addEventListener("mousemove",e=>{const r=svg.getBoundingClientRect(),px=(e.clientX-r.left)/r.width*W;let i=Math.round((px-ml)/(W-ml-mr)*(xs.length-1));i=Math.max(0,Math.min(xs.length-1,i));const X=sx(xs[i]);
+    cross.setAttribute("x1",X);cross.setAttribute("x2",X);cross.setAttribute("opacity",1);series.forEach((s,k)=>{dots[k].setAttribute("cx",X);dots[k].setAttribute("cy",sy(s.v[i]));dots[k].setAttribute("opacity",1);});
+    const b=box.getBoundingClientRect();place(t,box,X/W*b.width,e.clientY-b.top,`<b>${xlab(xs[i])}</b><br>`+series.map(s=>`${s.name}: <b>${yf(s.v[i])}</b>`).join("<br>")+(ref?`<br>${ref.name}: <b>${yf(ref.v[i])}</b>`:"")+(band?`<br>Agreed: <b>${yf(band.lo)}–${yf(band.hi)}</b>`:""));});
+  hit.addEventListener("mouseleave",()=>{t.style.opacity=0;cross.setAttribute("opacity",0);dots.forEach(d=>d.setAttribute("opacity",0));});
+}
+const drawSupply=b=>lineChart(b,{xs:WEEKS,series:[{name:"Departure FTE",v:DEP,c:"--s1",label:"Departure"},{name:"Arrival FTE",v:ARR,c:"--s2",label:"Arrival"}],ref:{name:"Requirement",v:REQ},ymin:0,ymax:110,xlab:w=>"Wk "+w,yf:v=>Math.round(v),label:"Supply walk by week"});
+const drawWatch=b=>lineChart(b,{xs:POST,series:[{name:"Actual",v:AHT_ACT,c:"--s1",label:"Actual"}],band:{lo:AHT_A*(1-BAND),hi:AHT_A*(1+BAND)},ymin:400,ymax:800,xlab:w=>"Wk "+w,yf:v=>Math.round(v)+" s",label:"Email handle time after go-live against the agreed range"});
+
+/* ---------- boot ---------- */
+$("reset").onclick=()=>{done.clear();signed.clear();cur=0;Object.values(LEDGER).forEach(r=>{r.status="—";r.conf="";r.why="";});drawLedger();drawStage();};
+function jump(){const m=location.hash.match(/stage=(\d)/);if(!m)return false;const n=Math.max(1,Math.min(S.length,+m[1]))-1;
+  for(let i=0;i<=n;i++){Object.entries(S[i].ledger).forEach(([id,[st,cf,w]])=>Object.assign(LEDGER[id],{status:st,conf:cf,why:w}));done.add(i);if(S[i].gate&&i<n)signed.add(i);}
+  cur=n;drawLedger();drawStage();return true;}
+if(!jump()){drawLedger();drawStage();}
+addEventListener("hashchange",()=>{done.clear();signed.clear();Object.values(LEDGER).forEach(r=>{r.status="—";r.conf="";r.why="";});jump()||(cur=0,drawLedger(),drawStage());});
+})();
+</script>
+</body>
+</html>
